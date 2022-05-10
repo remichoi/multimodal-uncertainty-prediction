@@ -1,12 +1,13 @@
-import torch
 from torch.utils.data.dataset import Dataset
+from utils.trialgetter import *
+import csv
 import joblib
 import numpy as np
-import csv
+import torch
 
 #Set Default Type Based on CUDA Availability
 if torch.cuda.is_available():
-    torch.set_default_type('torch.cuda.FloatTensor')
+    torch.set_default_tensor_type('torch.cuda.FloatTensor')
 else:
     torch.set_default_tensor_type('torch.FloatTensor')
 
@@ -38,34 +39,31 @@ class MultDataset(Dataset):
                 id = row[0]
 
                 if id is not None:
-                    #Getting Audio Features and Length
-                    audio_features = audio[id]
-                    audio_length = len(audio_features)
+                    for trial in range(30):
+                        #Getting Audio Features and Length
+                        # audio_features = get_audio_for_trial(audio[id], trial)
+                        # audio_length = len(audio_features)
 
-                    #Getting Video Features and Length
-                    video_features = video[id]
-                    video_concat_array = np.concatenate((
-                        video_features['au'],
-                        video_features['gaze'],
-                        video_features['pose']
-                    ), axis=1)
-                    video_length = len(video_features)
+                        #Getting Video Features and Length
+                        video_features = get_video_for_trial(video[id], trial)
+                        video_length = len(video_features)
 
-                    #Getting Text Features and Length
-                    text_features = text[id]
-                    text_length = len(text_features)
+                        #Getting Text Features and Length
+                        text_features = get_text_for_trial(text[id], trial)
+                        text_length = len(text_features)
 
-                    #Add Audio, Video, and Text Data to Dictionary
-                    self.data[len(self.data)] = {
-                        'audio': torch.from_numpy(audio_features),
-                        'audio_length': audio_length,
-                        'video': torch.from_numpy(video_concat_array),
-                        'video_length': video_length,
-                        'text': torch.from_numpy(text_features),
-                        'text_length': text_length,
-                        'binary': row[1],
-                        'severity': row[2]
-                    }
+                        #Add Audio, Video, and Text Data to Dictionary
+                        self.data[len(self.data)] = {
+                            # 'audio': torch.from_numpy(audio_features),
+                            # 'audio_length': audio_length,
+                            'video': torch.from_numpy(video_features),
+                            'video_length': video_length,
+                            'text': torch.from_numpy(text_features),
+                            'text_length': text_length,
+                            'ratio': get_trial_info(id, trial, 'ratio'),
+                            'gender': get_trial_info(id, trial, 'gender'),
+                            'uncertainty': get_trial_info(id, trial, 'label')
+                        }
     
     def __len__(self):
         #Return Length of Dictionary

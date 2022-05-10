@@ -1,13 +1,25 @@
-import nltk
-import csv
-import numpy as np
-import re
+from collections import defaultdict
 from nltk.corpus import stopwords
+from trialgetter import get_timestamps
+
+import csv
 import joblib
+import nltk
+import numpy as np
+import pandas as pd
+import re
 
 nltk.download('stopwords')
 stop = set(stopwords.words('english'))
 glove = {}
+
+def find_trial(trials, timestamp):
+    for idx, (start, stop) in enumerate(trials[1:]):
+        if timestamp <= start:
+            return idx-1
+    
+    print(f"ERROR: could not find trial for {timestamp} when last trial is {start, stop}")
+    return -1
 
 def load_glove_embeddings():
     # Getting Pretrained GLOVE Vectors
@@ -20,47 +32,55 @@ def load_glove_embeddings():
 
 def get_glove_features(id):
     # Reading Utterance From Transcript File for Given ID
-    utterances = np.array([])
+    utterances = []
 
-    with open('./data/' + id + '_TRANSCRIPT.csv') as file:
+    with open('../data/transcription_' + id + '.csv') as file:
         csv_reader = csv.reader(file)
         next(csv_reader)
         for row in csv_reader:
           if row:
-            row = row[0].split('\t')
-            #Only Extract Utterances for Participant (Not Automated Agent)
-            if row[2].lower() == 'participant':
-                line = row[3].lower()
+            line = row[1].lower()
 
-                #Stripping Punctuations
-                line_by_words = re.findall(r'(?:\w+)', line, flags=re.UNICODE)
-                new_line = []
+            #Stripping Punctuations
+            line_by_words = re.findall(r'(?:\w+)', line, flags=re.UNICODE)
+            new_line = []
 
-                #Getting Glove Vectors of the Words, Using Random Vector If Not Found
-                for word in line_by_words:
-                    if word not in stop:
-                        try:
-                            vector = glove[word]
-                        except KeyError: #Can't Find Word in Pretrained Vector Dictionary
-                            vector = np.random.normal(scale=0.6, size=(50, )) #Create Random Vector of Size 50
-                        new_line.append(vector)
+            #Getting Glove Vectors of the Words, Using Random Vector If Not Found
+            for word in line_by_words:
+                if word not in stop:
+                    try:
+                        vector = glove[word]
+                    except KeyError: #Can't Find Word in Pretrained Vector Dictionary
+                        vector = np.random.normal(scale=0.6, size=(50, )) #Create Random Vector of Size 50
+                    new_line.append(vector)
 
-                #Append a Period to End of New Line
-                new_line.append(glove['.'])
+            #Append a Period to End of New Line
+            new_line.append(glove['.'])
 
-                #Append to List of Utterances
-                utterances = np.append(utterances, new_line)
+            #Append to List of Utterances
+            utterances.append(new_line)
     return utterances
 
-def read_text_file(file_name):
-    features = np.array([])
-    with open(file_name) as file:
+def read_text_file(id):
+    trials = get_timestamps(id)
+
+    features = defaultdict(list)
+    with open('../data/AU/' + id + '.csv') as file:
         lines = file.readlines()[1:] #Skip First Row When Reading Line
         for line in lines:
-            feature = line.split(',')[2:] #Skip First Two Columns In Line
+            timestamp = line.split(',')[2]
+
+            trial = find_trial(trials, float(timestamp))
+
+            feature = line.split(',')[4:] #Skip First Two Columns In Line
             if '-1.#IND' not in feature: #Include Feature Only If Not Indeterminate
-                features = np.append(features, [float(f) for f in feature])
-    return features
+                features[trial].append([float(f) for f in feature])
+    
+    # Merge trial features into one 
+    for feature in features.keys():
+        features[feature] = np.concatenate(features[feature])
+
+    return features 
 
 #Dataset for Representing Text
 class TextDataset():
@@ -124,13 +144,20 @@ class VideoDataset():
             for row in csv_reader:
                 id = row[0]
                 # Reading Action units, pose and gaze features
-                au = read_text_file('./data/' + id + '_CLNF_AUs.txt')
-                gaze = read_text_file('./data/' + id + '_CLNF_gaze.txt')
-                pose = read_text_file('./data/' + id + '_CLNF_pose.txt')
+                au = read_text_file(id)
 
-                total_video[id] = {'au': au, 'gaze': gaze, 'pose': pose}
+                total_video[id] = au
         self.save_video_features(total_video)
       
     def save_video_features(self, feats):
         with open('./saved_data/video_features_' + self.split + '.sav', 'wb') as f:
             joblib.dump(feats, f)
+
+
+if __name__ == '__main__':
+    load_glove_embeddings()
+    # res = get_glove_features('0b5b0824-6ade-4cb8-9000-32abf0ab9a49')
+    # print(res[19],res[29])
+
+    # au = read_text_file('02e68a1f-f74d-47df-9e20-3685498f9daf')
+    # print(len(au))
